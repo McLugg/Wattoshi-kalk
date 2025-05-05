@@ -7,11 +7,9 @@ st.set_page_config(page_title="Wattoshi Panelinvestor Kalkulator", layout="wide"
 
 st.title("Wattoshi Panelinvestor Kalkulator – Fordeling Kunde / Tak-eier / Wattoshi")
 
-# Layout
+# Inputparametere
 col1, col2 = st.columns([1, 1.5])
-
 with col1:
-    st.header("Inputparametere")
     antall_paneler = st.slider("Antall paneler", 1, 100, 1)
     panelkapasitet = st.selectbox("Panelkapasitet (Watt)", [400, 415, 430])
     pris_per_panel = st.number_input("Pris per panel (NOK)", value=2000)
@@ -28,49 +26,67 @@ with col1:
         st.stop()
 
 # Beregninger
+år = list(range(0, 31))
 produksjon_kwh = antall_paneler * panelkapasitet / 1000 * produksjonstimer
 verdi_årlig = produksjon_kwh * eksportpris
-andel_kunde_decimal = andel_kunde / 100
 btc_growth = btc_vekst / 100
 investering = antall_paneler * pris_per_panel
 
-# Kalkulere årlig og akkumulert inntekt for kunde
-år = list(range(0, 31))
-årlig_inntekt = []
-akkumulert = []
-sum_inntekt = 0
-nedbetalt_markert = []
-flag = False
+# Beregn årlige verdier
+kunde_inntekt = []
+takeier_inntekt = []
+wattoshi_inntekt = []
+akk_kunde = 0
+nedbetaling_tid = None
 
 for n in år:
-    inntekt = verdi_årlig * (1 + btc_growth) ** n * andel_kunde_decimal
-    sum_inntekt += inntekt
-    årlig_inntekt.append(round(inntekt, 2))
-    akkumulert.append(round(sum_inntekt, 2))
-    if not flag and sum_inntekt >= investering:
-        nedbetalt_markert.append("✅")
-        flag = True
-    else:
-        nedbetalt_markert.append("")
+    total = verdi_årlig * ((1 + btc_growth) ** n)
+    k = total * (andel_kunde / 100)
+    t = total * (andel_takeier / 100)
+    w = total * (andel_wattoshi / 100)
+    akk_kunde += k
+    kunde_inntekt.append(round(k, 2))
+    takeier_inntekt.append(round(t, 2))
+    wattoshi_inntekt.append(round(w, 2))
+    if not nedbetaling_tid and akk_kunde >= investering:
+        år_før = n - 1
+        if år_før < 0:
+            nedbetaling_tid = 0.0
+        else:
+            diff = investering - sum(kunde_inntekt[:-1])
+            steg = k
+            nedbetaling_tid = år_før + (diff / steg)
 
-# Presentere som tabell
-df = pd.DataFrame({
-    "År": år,
-    "Årlig inntekt kunde (NOK)": årlig_inntekt,
-    "Akkumulert inntekt (NOK)": akkumulert,
-    "Nedbetalt": nedbetalt_markert
-})
-
+# Resultatvisning
 with col2:
-    st.subheader("Inntektstabell år 0–30")
-    st.dataframe(df, use_container_width=True)
+    st.subheader("🔍 Resultater")
+    st.markdown(f"### 💸 Kundens investering: **{investering:,.0f} kr**")
+    if nedbetaling_tid:
+        st.success(f"✅ **Nedbetalt etter {nedbetaling_tid:.2f} år**")
+    else:
+        st.warning("⏳ Ikke nedbetalt innen 30 år")
 
-    st.subheader("Graf – Akkumulert inntekt")
+    st.subheader("📈 Graf – Årlig utbetaling per aktør")
     fig, ax = plt.subplots()
-    ax.plot(år, akkumulert, marker='o', label="Akkumulert verdi")
-    ax.axhline(investering, color='r', linestyle='--', label="Investering")
+    ax.plot(år, kunde_inntekt, label="Kunde", color="green")
+    ax.plot(år, takeier_inntekt, label="Tak-eier", color="orange")
+    ax.plot(år, wattoshi_inntekt, label="Wattoshi", color="blue")
+    ax.axhline(investering, color="red", linestyle="--", label="Investering (kunde)")
     ax.set_xlabel("År")
-    ax.set_ylabel("Verdi (NOK)")
-    ax.set_title("Akkumulert verdi over tid for kunde")
+    ax.set_ylabel("Årlig utbetaling (NOK)")
+    ax.set_title("Årlig verdi av produksjon fordelt på aktører")
     ax.legend()
     st.pyplot(fig)
+
+    st.subheader("📊 Tabell – Kundeinntekt år 0–30")
+    akkum_kunde = []
+    total = 0
+    for beløp in kunde_inntekt:
+        total += beløp
+        akkum_kunde.append(round(total, 2))
+    df = pd.DataFrame({
+        "År": år,
+        "Årlig inntekt (NOK)": kunde_inntekt,
+        "Akkumulert inntekt (NOK)": akkum_kunde
+    })
+    st.dataframe(df, use_container_width=True)
